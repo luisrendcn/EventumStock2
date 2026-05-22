@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+pwa/node_modules/
+ecommerce/node_modules/
+
+# Build output
+dist/
+pwa/dist/
+ecommerce/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# TypeScript cache
+*.tsbuildinfo
+.claude/
