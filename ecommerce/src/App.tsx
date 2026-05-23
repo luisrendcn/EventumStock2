@@ -33,7 +33,7 @@ export function App() {
           <div className="flex items-center gap-3">
             <span className="text-xs text-indigo-400 hidden sm:block">Inventario en tiempo real via</span>
             <span className="text-xs bg-indigo-800 text-indigo-200 px-2.5 py-1 rounded-full font-mono">
-              SGI API :3001
+              EventumStock API :3001
             </span>
           </div>
         </div>

@@ -32,7 +32,7 @@ export function Catalog({ onCheckout }: Props) {
         ps.forEach(p => { initial[p.id] = 1; });
         setQuantities(initial);
       })
-      .catch(() => setError('No se pudo conectar con el inventario SGI.'))
+      .catch(() => setError('No se pudo conectar con EventumStock.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -83,7 +83,7 @@ export function Catalog({ onCheckout }: Props) {
     return (
       <div className="max-w-md mx-auto mt-20 text-center px-6">
         <p className="text-4xl mb-4">⚠️</p>
-        <p className="text-red-600 font-semibold mb-2">Sin conexión con SGI</p>
+        <p className="text-red-600 font-semibold mb-2">Sin conexión con EventumStock</p>
         <p className="text-zinc-500 text-sm">{error}</p>
       </div>
     );
@@ -98,7 +98,7 @@ export function Catalog({ onCheckout }: Props) {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-zinc-900">Catálogo de productos</h1>
         <p className="text-zinc-500 text-sm mt-1">
-          Stock actualizado en tiempo real desde el inventario SGI
+          Stock actualizado en tiempo real desde EventumStock
           {' · '}{available.length} productos disponibles
         </p>
       </div>

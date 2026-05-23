@@ -24,8 +24,8 @@ async function main() {
   scheduler.start();
 
   app.listen(PORT, () => {
-    console.log(`[SGI] Server running on http://localhost:${PORT}`);
-    console.log(`[SGI] Health: http://localhost:${PORT}/health`);
+    console.log(`[EventumStock] Server running on http://localhost:${PORT}`);
+    console.log(`[EventumStock] Health: http://localhost:${PORT}/health`);
   });
 
   const shutdown = async () => {
@@ -40,6 +40,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('[SGI] Fatal error:', err);
+  console.error('[EventumStock] Fatal error:', err);
   process.exit(1);
 });
