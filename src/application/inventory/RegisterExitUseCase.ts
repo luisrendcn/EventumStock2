@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { IProductRepository } from '@domain/ports/IProductRepository';
 import { IReservationRepository } from '@domain/ports/IReservationRepository';
-import { INotificationService } from '@domain/ports/INotificationService';
+import { IEventBus } from '@domain/ports/IEventBus';
 import { ProductMovement } from '@domain/entities/ProductMovement';
-import { StockLevel, StockLevelError } from '@domain/value-objects/StockLevel';
+import { StockLevel } from '@domain/value-objects/StockLevel';
 import { StockUpdatedEvent } from '@domain/events/StockUpdatedEvent';
 
 export interface RegisterExitInput {
@@ -28,7 +28,7 @@ export class RegisterExitUseCase {
   constructor(
     private readonly productRepo: IProductRepository,
     private readonly reservationRepo: IReservationRepository,
-    private readonly notificationService: INotificationService,
+    private readonly eventBus: IEventBus,
   ) {}
 
   async execute(input: RegisterExitInput): Promise<RegisterExitOutput> {
@@ -50,7 +50,6 @@ export class RegisterExitUseCase {
 
     // Deducir de lotes FEFO
     let remaining = quantity;
-    const movementIds: string[] = [];
 
     for (const lot of lots) {
       if (remaining <= 0) break;
@@ -69,7 +68,6 @@ export class RegisterExitUseCase {
         new Date(),
       );
       await this.productRepo.saveMovement(movement);
-      movementIds.push(movement.id);
       remaining -= deduct;
     }
 
@@ -85,19 +83,7 @@ export class RegisterExitUseCase {
       product.minStockThreshold,
     );
 
-    // Flujo 3: alerta de bajo stock
-    if (event.isLowStock) {
-      try {
-        await this.notificationService.sendLowStockAlert(
-          productId,
-          product.name,
-          event.currentStock,
-          product.minStockThreshold,
-        );
-      } catch (error) {
-        console.error('[Notifications] Low stock alert failed:', error);
-      }
-    }
+    await this.eventBus.publish(event);
 
     return { stockAfter: Math.max(0, stockAfter), event };
   }

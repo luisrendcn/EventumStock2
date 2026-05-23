@@ -7,10 +7,12 @@ import { RedisReservationRepository } from '@infra/persistence/RedisReservationR
 import { DatabaseBarcodeScanner } from '@infra/scanning/DatabaseBarcodeScanner';
 import { createNotificationService } from '@infra/notifications/NotificationServiceFactory';
 import { TTLExpirationScheduler } from '@infra/scheduler/TTLExpirationScheduler';
+import { InMemoryEventBus } from '@infra/events/InMemoryEventBus';
 
 // Application
 import { RegisterEntryUseCase } from '@app/inventory/RegisterEntryUseCase';
 import { RegisterExitUseCase } from '@app/inventory/RegisterExitUseCase';
+import { LowStockNotificationObserver } from '@app/inventory/LowStockNotificationObserver';
 import { CreateReservationUseCase } from '@app/reservations/CreateReservationUseCase';
 import { ConfirmReservationUseCase } from '@app/reservations/ConfirmReservationUseCase';
 import { ExpireReservationsUseCase } from '@app/reservations/ExpireReservationsUseCase';
@@ -35,10 +37,12 @@ export function buildContainer(pgPool: Pool, redisClient: Redis): AppContainer {
   // Services
   const barcodeScanner = new DatabaseBarcodeScanner(productRepo);
   const notificationService = createNotificationService();
+  const eventBus = new InMemoryEventBus();
+  eventBus.subscribe('stock.updated', new LowStockNotificationObserver(notificationService));
 
   // Use Cases — inventory
   const registerEntry = new RegisterEntryUseCase(productRepo);
-  const registerExit = new RegisterExitUseCase(productRepo, reservationRepo, notificationService);
+  const registerExit = new RegisterExitUseCase(productRepo, reservationRepo, eventBus);
 
   // Use Cases — reservations
   const createReservation = new CreateReservationUseCase(productRepo, reservationRepo);

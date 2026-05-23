@@ -1,4 +1,7 @@
-export class StockUpdatedEvent {
+import { DomainEvent } from '@domain/events/DomainEvent';
+
+export class StockUpdatedEvent implements DomainEvent {
+  public readonly eventName = 'stock.updated';
   public readonly occurredAt: Date;
 
   constructor(
