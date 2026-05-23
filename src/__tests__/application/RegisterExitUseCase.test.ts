@@ -107,6 +107,37 @@ describe('RegisterExitUseCase', () => {
     );
   });
 
+  it('does not fail the stock exit when the low stock alert cannot be sent', async () => {
+    const lot = makeLot('lot-A', 12, 10);
+    const product = makeProduct([lot]);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+
+    notificationService.sendLowStockAlert.mockRejectedValue(new Error('SMTP unavailable'));
+    productRepo.findById.mockResolvedValue(product);
+    productRepo.findActiveLotsFEFO
+      .mockResolvedValueOnce([lot])
+      .mockResolvedValueOnce([makeLot('lot-A', 5, 10)]);
+
+    await expect(
+      useCase.execute({
+        productId: 'prod-1',
+        barcode: '5901234123457',
+        quantity: 7,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        stockAfter: 5,
+      }),
+    );
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Notifications] Low stock alert failed:',
+      expect.any(Error),
+    );
+
+    consoleError.mockRestore();
+  });
+
   it('throws InsufficientStockError when not enough available', async () => {
     const lot = makeLot('lot-A', 5, 10);
     productRepo.findById.mockResolvedValue(makeProduct([lot]));

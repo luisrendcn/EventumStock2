@@ -1,4 +1,4 @@
--- SGI — Schema hexagonal
+-- EventumStock — Schema hexagonal
 -- product_movements es INMUTABLE: solo INSERT, nunca UPDATE (RN-08)
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";

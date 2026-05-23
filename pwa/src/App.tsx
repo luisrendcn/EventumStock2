@@ -22,7 +22,7 @@ export function App() {
       <header className="bg-slate-900 text-white px-8 py-4 shadow-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">SGI — Sistema de Gestión de Inventario</h1>
+            <h1 className="text-xl font-bold tracking-tight">EventumStock</h1>
             <p className="text-xs text-slate-400 mt-0.5">Arquitectura Hexagonal · Node.js + TypeScript</p>
           </div>
           <span className="hidden sm:inline-flex items-center gap-1.5 text-xs bg-emerald-700 text-emerald-100 px-3 py-1 rounded-full font-medium">

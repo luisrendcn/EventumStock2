@@ -5,7 +5,7 @@ import Redis from 'ioredis';
 import { PostgresProductRepository } from '@infra/persistence/PostgresProductRepository';
 import { RedisReservationRepository } from '@infra/persistence/RedisReservationRepository';
 import { DatabaseBarcodeScanner } from '@infra/scanning/DatabaseBarcodeScanner';
-import { ConsoleNotificationService } from '@infra/notifications/ConsoleNotificationService';
+import { createNotificationService } from '@infra/notifications/NotificationServiceFactory';
 import { TTLExpirationScheduler } from '@infra/scheduler/TTLExpirationScheduler';
 
 // Application
@@ -34,7 +34,7 @@ export function buildContainer(pgPool: Pool, redisClient: Redis): AppContainer {
 
   // Services
   const barcodeScanner = new DatabaseBarcodeScanner(productRepo);
-  const notificationService = new ConsoleNotificationService();
+  const notificationService = createNotificationService();
 
   // Use Cases — inventory
   const registerEntry = new RegisterEntryUseCase(productRepo);
