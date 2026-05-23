@@ -87,12 +87,16 @@ export class RegisterExitUseCase {
 
     // Flujo 3: alerta de bajo stock
     if (event.isLowStock) {
-      await this.notificationService.sendLowStockAlert(
-        productId,
-        product.name,
-        event.currentStock,
-        product.minStockThreshold,
-      );
+      try {
+        await this.notificationService.sendLowStockAlert(
+          productId,
+          product.name,
+          event.currentStock,
+          product.minStockThreshold,
+        );
+      } catch (error) {
+        console.error('[Notifications] Low stock alert failed:', error);
+      }
     }
 
     return { stockAfter: Math.max(0, stockAfter), event };
