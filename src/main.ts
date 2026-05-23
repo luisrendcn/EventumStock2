@@ -1,4 +1,3 @@
-import 'tsconfig-paths/register';
 import 'dotenv/config';
 import { Pool } from 'pg';
 import Redis from 'ioredis';

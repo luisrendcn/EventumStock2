@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+pwa/node_modules
+pwa/dist
+ecommerce/node_modules
+ecommerce/dist
+.vscode
+.idea
+.claude
