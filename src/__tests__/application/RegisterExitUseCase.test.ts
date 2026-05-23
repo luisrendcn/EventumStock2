@@ -1,10 +1,11 @@
 import { RegisterExitUseCase } from '@app/inventory/RegisterExitUseCase';
 import { IProductRepository } from '@domain/ports/IProductRepository';
 import { IReservationRepository } from '@domain/ports/IReservationRepository';
-import { INotificationService } from '@domain/ports/INotificationService';
+import { IEventBus } from '@domain/ports/IEventBus';
 import { Product } from '@domain/entities/Product';
 import { ProductLot } from '@domain/entities/ProductLot';
 import { Barcode } from '@domain/value-objects/Barcode';
+import { StockUpdatedEvent } from '@domain/events/StockUpdatedEvent';
 
 function makeLot(id: string, quantity: number, expiryDaysFromNow: number): ProductLot {
   const expiry = new Date();
@@ -19,7 +20,7 @@ function makeProduct(lots: ProductLot[]): Product {
 describe('RegisterExitUseCase', () => {
   let productRepo: jest.Mocked<IProductRepository>;
   let reservationRepo: jest.Mocked<IReservationRepository>;
-  let notificationService: jest.Mocked<INotificationService>;
+  let eventBus: jest.Mocked<IEventBus>;
   let useCase: RegisterExitUseCase;
 
   beforeEach(() => {
@@ -45,11 +46,12 @@ describe('RegisterExitUseCase', () => {
       getTotalReservedQuantity: jest.fn().mockResolvedValue(0),
     };
 
-    notificationService = {
-      sendLowStockAlert: jest.fn().mockResolvedValue(undefined),
+    eventBus = {
+      subscribe: jest.fn(),
+      publish: jest.fn().mockResolvedValue(undefined),
     };
 
-    useCase = new RegisterExitUseCase(productRepo, reservationRepo, notificationService);
+    useCase = new RegisterExitUseCase(productRepo, reservationRepo, eventBus);
   });
 
   it('deducts from FEFO lot first (earliest expiry)', async () => {
@@ -83,7 +85,7 @@ describe('RegisterExitUseCase', () => {
     expect(productRepo.updateLotQuantity).toHaveBeenCalledWith('lot-B', 35);
   });
 
-  it('emits low stock alert when stock falls below threshold', async () => {
+  it('publishes a stock updated event when stock falls below threshold', async () => {
     const lot = makeLot('lot-A', 12, 10);
     const product = makeProduct([lot]); // minStockThreshold = 10
 
@@ -99,20 +101,20 @@ describe('RegisterExitUseCase', () => {
     });
 
     expect(event.isLowStock).toBe(true);
-    expect(notificationService.sendLowStockAlert).toHaveBeenCalledWith(
-      'prod-1',
-      'Test Product',
-      expect.any(Number),
-      10,
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productId: 'prod-1',
+        productName: 'Test Product',
+        currentStock: 5,
+        minThreshold: 10,
+      }),
     );
   });
 
-  it('does not fail the stock exit when the low stock alert cannot be sent', async () => {
+  it('publishes the stock event without knowing which observers are subscribed', async () => {
     const lot = makeLot('lot-A', 12, 10);
     const product = makeProduct([lot]);
-    const consoleError = jest.spyOn(console, 'error').mockImplementation();
 
-    notificationService.sendLowStockAlert.mockRejectedValue(new Error('SMTP unavailable'));
     productRepo.findById.mockResolvedValue(product);
     productRepo.findActiveLotsFEFO
       .mockResolvedValueOnce([lot])
@@ -130,12 +132,9 @@ describe('RegisterExitUseCase', () => {
       }),
     );
 
-    expect(consoleError).toHaveBeenCalledWith(
-      '[Notifications] Low stock alert failed:',
-      expect.any(Error),
-    );
-
-    consoleError.mockRestore();
+    const publishedEvent = eventBus.publish.mock.calls[0][0] as StockUpdatedEvent;
+    expect(publishedEvent).toBeInstanceOf(StockUpdatedEvent);
+    expect(publishedEvent.eventName).toBe('stock.updated');
   });
 
   it('throws InsufficientStockError when not enough available', async () => {
