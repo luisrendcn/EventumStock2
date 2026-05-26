@@ -1,69 +1,103 @@
 import { Barcode, BarcodeError } from '@domain/value-objects/Barcode';
 
 describe('Barcode', () => {
-  describe('EAN-13', () => {
-    it('accepts valid EAN-13', () => {
-      const b = Barcode.create('5901234123457');
-      expect(b.value).toBe('5901234123457');
+
+  describe('regla principal: solo dígitos, longitud libre', () => {
+    it('acepta 1 dígito', () => {
+      expect(Barcode.create('0').value).toBe('0');
     });
 
-    it('accepts EAN-13 with non-standard check digit (permissive scanner mode)', () => {
-      // Check digit 0 es incorrecto para este código, pero create() ya no lo verifica
-      // para garantizar compatibilidad con escáneres reales que devuelven variaciones.
-      const b = Barcode.create('5901234123450');
-      expect(b.value).toBe('5901234123450');
+    it('acepta EAN-8 (8 dígitos)', () => {
+      expect(Barcode.create('12345678').value).toBe('12345678');
     });
 
-    it('isValidEANCheckDigit() distingue correcto de incorrecto', () => {
-      expect(Barcode.isValidEANCheckDigit('5901234123457')).toBe(true);
-      expect(Barcode.isValidEANCheckDigit('5901234123450')).toBe(false);
+    it('acepta EAN-13 (13 dígitos)', () => {
+      expect(Barcode.create('5901234123457').value).toBe('5901234123457');
+    });
+
+    it('acepta EAN-13 con check digit no estándar', () => {
+      expect(Barcode.create('5901234123450').value).toBe('5901234123450');
+    });
+
+    it('acepta cadenas numéricas largas (> 13 dígitos)', () => {
+      expect(Barcode.create('12345678901234567890').value).toBe('12345678901234567890');
+    });
+
+    it('acepta cadenas numéricas cortas (< 8 dígitos)', () => {
+      expect(Barcode.create('123').value).toBe('123');
     });
   });
 
-  describe('EAN-8', () => {
-    it('accepts any 8-digit string', () => {
-      const b = Barcode.create('12345678');
-      expect(b.value).toBe('12345678');
-    });
-  });
-
-  describe('Code128', () => {
-    it('accepts alphanumeric printable ASCII', () => {
-      const b = Barcode.create('LOT-2024-ABC');
-      expect(b.value).toBe('LOT-2024-ABC');
-    });
-
-    it('rejects empty string', () => {
+  describe('rechazo de entradas inválidas', () => {
+    it('rechaza string vacío', () => {
       expect(() => Barcode.create('')).toThrow(BarcodeError);
     });
 
-    it('rejects string longer than 48 chars', () => {
-      expect(() => Barcode.create('A'.repeat(49))).toThrow(BarcodeError);
+    it('rechaza string con letras', () => {
+      expect(() => Barcode.create('LOT-2024-ABC')).toThrow(BarcodeError);
+    });
+
+    it('rechaza string alfanumérico', () => {
+      expect(() => Barcode.create('ABC123')).toThrow(BarcodeError);
+    });
+
+    it('rechaza string con guiones', () => {
+      expect(() => Barcode.create('123-456')).toThrow(BarcodeError);
+    });
+
+    it('rechaza string con espacios internos', () => {
+      expect(() => Barcode.create('123 456')).toThrow(BarcodeError);
+    });
+
+    it('rechaza string solo de letras', () => {
+      expect(() => Barcode.create('ABCDEF')).toThrow(BarcodeError);
     });
   });
 
   describe('sanitización de entrada (escáner real)', () => {
-    it('trims whitespace before validation', () => {
-      const b = Barcode.create('  5901234123457  ');
-      expect(b.value).toBe('5901234123457');
+    it('hace trim de espacios en extremos', () => {
+      expect(Barcode.create('  5901234123457  ').value).toBe('5901234123457');
     });
 
-    it('strips control characters (< 0x20) before validation', () => {
-      // QuaggaJS puede añadir FNC1 (0x1D), GS (0x1D) u otros caracteres de función
-      // al decodificar Code128 GS1. Se eliminan antes de validar.
-      const b = Barcode.create('\x1D5901234123457');
-      expect(b.value).toBe('5901234123457');
+    it('elimina caracteres de control (< 0x20) antes de validar', () => {
+      // QuaggaJS puede añadir FNC1 (0x1D) al decodificar Code128 GS1
+      expect(Barcode.create('\x1D5901234123457').value).toBe('5901234123457');
     });
 
-    it('strips multiple control characters and still validates as Code128', () => {
-      const b = Barcode.create('\x0BLOT-2024\x1D');
-      expect(b.value).toBe('LOT-2024');
+    it('elimina múltiples caracteres de control', () => {
+      expect(Barcode.create('\x00\x0B12345678\x1D').value).toBe('12345678');
     });
   });
 
-  it('equals() compares by value', () => {
-    const a = Barcode.create('5901234123457');
-    const b = Barcode.create('5901234123457');
-    expect(a.equals(b)).toBe(true);
+  describe('isValidEANCheckDigit() — utilidad independiente', () => {
+    it('EAN-13 con check digit correcto → true', () => {
+      expect(Barcode.isValidEANCheckDigit('5901234123457')).toBe(true);
+    });
+
+    it('EAN-13 con check digit incorrecto → false', () => {
+      expect(Barcode.isValidEANCheckDigit('5901234123450')).toBe(false);
+    });
+
+    it('EAN-8 con check digit correcto → true', () => {
+      expect(Barcode.isValidEANCheckDigit('40170725')).toBe(true);
+    });
+
+    it('string no EAN-8/13 → false', () => {
+      expect(Barcode.isValidEANCheckDigit('123')).toBe(false);
+    });
+  });
+
+  describe('equals()', () => {
+    it('mismo valor → true', () => {
+      const a = Barcode.create('5901234123457');
+      const b = Barcode.create('5901234123457');
+      expect(a.equals(b)).toBe(true);
+    });
+
+    it('distinto valor → false', () => {
+      const a = Barcode.create('5901234123457');
+      const b = Barcode.create('12345678');
+      expect(a.equals(b)).toBe(false);
+    });
   });
 });
