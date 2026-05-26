@@ -91,6 +91,7 @@ export function ScanForm({ onSuccess }: Props) {
     if (!scannerOpen) return;
 
     let cancelled = false;
+    let handled = false;
     const constraints: MediaStreamConstraints = {
       video: {
         facingMode: { ideal: 'environment' },
@@ -112,15 +113,17 @@ export function ScanForm({ onSuccess }: Props) {
         constraints,
         videoRef.current ?? undefined,
         (result) => {
-          if (!result || cancelled) return;
+          if (!result || cancelled || handled) return;
+          handled = true;
 
           const scannedBarcode = extractBarcodeFromScan(result.getText());
           setBarcode(scannedBarcode);
-          setScannerStatus('Código detectado.');
-          showToast(`Código escaneado: ${scannedBarcode}`);
+          setScannerStatus('Código detectado. Registrando movimiento...');
+          showToast(`Código detectado: ${scannedBarcode}`);
           scannerControlsRef.current?.stop();
           scannerControlsRef.current = null;
           setScannerOpen(false);
+          void processScan(buildScanParams(scannedBarcode));
         },
       );
 
@@ -184,23 +187,24 @@ export function ScanForm({ onSuccess }: Props) {
     return api.scan(params);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setResult(null);
-    setLoading(true);
-
-    const params: ScanParams = {
-      barcode,
+  function buildScanParams(scannedBarcode = barcode): ScanParams {
+    return {
+      barcode: scannedBarcode,
       quantity,
       type,
       ...(type === 'IN' ? { lotNumber, expiryDate } : {}),
     };
+  }
+
+  async function processScan(params: ScanParams) {
+    setError('');
+    setResult(null);
+    setLoading(true);
 
     try {
       const out = await executeScan(params);
       if (out.type === 'IN') {
-        setEntryModal({ ...out, lotNumber });
+        setEntryModal({ ...out, lotNumber: params.lotNumber ?? '' });
       } else {
         setResult(out);
       }
@@ -209,7 +213,7 @@ export function ScanForm({ onSuccess }: Props) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.toLowerCase().includes('no encontrado') || message.toLowerCase().includes('not found')) {
         pendingScan.current = params;
-        setModalBarcode(barcode);
+        setModalBarcode(params.barcode);
         setShowModal(true);
       } else {
         setError(message);
@@ -217,6 +221,11 @@ export function ScanForm({ onSuccess }: Props) {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await processScan(buildScanParams());
   }
 
   async function handleProductCreated(_productId: string) {
