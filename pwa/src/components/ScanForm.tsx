@@ -66,6 +66,8 @@ export function ScanForm({ onSuccess }: Props) {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState('');
   const [scannerStatus, setScannerStatus] = useState('Preparando cámara…');
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -92,15 +94,6 @@ export function ScanForm({ onSuccess }: Props) {
 
     let cancelled = false;
     let handled = false;
-    const constraints: MediaStreamConstraints = {
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      audio: false,
-    };
-
     setScannerError('');
     setScannerStatus('Autoriza la cámara y apunta al código del producto.');
 
@@ -109,8 +102,8 @@ export function ScanForm({ onSuccess }: Props) {
       if (cancelled) return;
 
       const codeReader = new BrowserMultiFormatReader();
-      const controls = await codeReader.decodeFromConstraints(
-        constraints,
+      const controls = await codeReader.decodeFromVideoDevice(
+        selectedDeviceId,
         videoRef.current ?? undefined,
         (result) => {
           if (!result || cancelled || handled) return;
@@ -127,6 +120,10 @@ export function ScanForm({ onSuccess }: Props) {
         },
       );
 
+      void BrowserMultiFormatReader.listVideoInputDevices().then((devices) => {
+        if (!cancelled) setCameraDevices(devices);
+      });
+
       return controls;
     }
 
@@ -139,6 +136,9 @@ export function ScanForm({ onSuccess }: Props) {
         }
         scannerControlsRef.current = controls;
         setScannerStatus('Cámara activa. Acerca el código al recuadro.');
+        void videoRef.current?.play().catch(() => {
+          setScannerStatus('Toca el video si el navegador bloquea la reproducción automática.');
+        });
       })
       .catch((err) => {
         setScannerError(
@@ -154,7 +154,7 @@ export function ScanForm({ onSuccess }: Props) {
       scannerControlsRef.current?.stop();
       scannerControlsRef.current = null;
     };
-  }, [scannerOpen]);
+  }, [scannerOpen, selectedDeviceId]);
 
   // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
@@ -181,6 +181,15 @@ export function ScanForm({ onSuccess }: Props) {
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     setScannerOpen(false);
+  }
+
+  function switchCamera() {
+    if (cameraDevices.length < 2) return;
+
+    const currentIndex = cameraDevices.findIndex((device) => device.deviceId === selectedDeviceId);
+    const nextDevice = cameraDevices[(currentIndex + 1 + cameraDevices.length) % cameraDevices.length];
+    setSelectedDeviceId(nextDevice.deviceId);
+    setScannerStatus('Cambiando cámara...');
   }
 
   async function executeScan(params: ScanParams): Promise<ScanOutput> {
@@ -418,8 +427,10 @@ export function ScanForm({ onSuccess }: Props) {
                 <video
                   ref={videoRef}
                   className="h-full w-full object-cover"
+                  autoPlay
                   muted
                   playsInline
+                  onClick={() => void videoRef.current?.play()}
                 />
                 <div className="pointer-events-none absolute inset-10 rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
               </div>
@@ -441,6 +452,14 @@ export function ScanForm({ onSuccess }: Props) {
                   className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={switchCamera}
+                  disabled={cameraDevices.length < 2}
+                  className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cambiar cámara
                 </button>
                 <button
                   type="button"
