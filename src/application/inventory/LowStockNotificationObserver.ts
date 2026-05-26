@@ -15,6 +15,9 @@ export class LowStockNotificationObserver implements IDomainEventObserver<StockU
         event.currentStock,
         event.minThreshold,
       );
+      console.log(
+        `[Notifications] Low stock alert sent for ${event.productName} (${event.currentStock}/${event.minThreshold})`,
+      );
     } catch (error) {
       console.error('[Notifications] Low stock alert failed:', error);
     }

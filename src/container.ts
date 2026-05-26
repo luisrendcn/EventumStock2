@@ -41,7 +41,7 @@ export function buildContainer(pgPool: Pool, redisClient: Redis): AppContainer {
   eventBus.subscribe('stock.updated', new LowStockNotificationObserver(notificationService));
 
   // Use Cases — inventory
-  const registerEntry = new RegisterEntryUseCase(productRepo);
+  const registerEntry = new RegisterEntryUseCase(productRepo, reservationRepo, eventBus);
   const registerExit = new RegisterExitUseCase(productRepo, reservationRepo, eventBus);
 
   // Use Cases — reservations
