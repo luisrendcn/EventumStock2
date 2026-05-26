@@ -62,10 +62,8 @@ function extractBarcodeFromScan(rawValue: string): string {
   return value;
 }
 
-/** Detecta si el dispositivo es móvil (para mostrar/ocultar botón de cámara) */
-function isMobileDevice(): boolean {
-  return /iPhone|iPad|Android/i.test(navigator.userAgent);
-}
+/** Constante evaluada una sola vez al cargar el módulo — no cambia en runtime */
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 export function ScanForm({ onSuccess }: Props) {
   const [barcode, setBarcode]           = useState('');
@@ -251,8 +249,6 @@ export function ScanForm({ onSuccess }: Props) {
       : 'border-slate-300',
   ].join(' ');
 
-  const mobile = isMobileDevice();
-
   return (
     <>
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
@@ -296,10 +292,12 @@ export function ScanForm({ onSuccess }: Props) {
           </div>
 
           {/* ── Fila 2: Botones de acción ── */}
-          <div className={`grid gap-2 ${mobile ? 'grid-cols-3' : 'grid-cols-3'}`}>
+          {/* Móvil: 3 columnas [Cámara | Generar | Simular]  */}
+          {/* Desktop: 2 columnas [Generar | Simular]          */}
+          <div className={`grid gap-2 ${IS_MOBILE ? 'grid-cols-3' : 'grid-cols-2'}`}>
 
-            {/* Cámara — solo en móvil */}
-            {mobile && (
+            {/* Cámara QuaggaJS — solo visible en móvil */}
+            {IS_MOBILE && (
               <button
                 type="button"
                 onClick={() => setCameraOpen(true)}
@@ -314,7 +312,7 @@ export function ScanForm({ onSuccess }: Props) {
             )}
 
             {/* Generar código de prueba (dropdown) */}
-            <div ref={dropdownRef} className={`relative ${!mobile ? 'col-span-2' : ''}`}>
+            <div ref={dropdownRef} className="relative">
               <button
                 type="button"
                 onClick={() => setDropdownOpen(o => !o)}
