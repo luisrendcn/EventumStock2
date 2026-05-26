@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { IScannerControls } from '@zxing/browser';
 import { api, ScanOutput } from '../api/client';
 import { CreateProductModal } from './CreateProductModal';
 import { SuccessModal } from './SuccessModal';
 import { BarcodeFormat, generateBarcode } from '../utils/barcodeGenerator';
+import { BarcodeCamera } from './BarcodeCamera';
 
 const DEMO_BARCODES = [
   { code: '5901234123457', label: 'Ibuprofeno' },
@@ -12,10 +12,18 @@ const DEMO_BARCODES = [
 ];
 
 const FORMATS: { value: BarcodeFormat; label: string; hint: string }[] = [
-  { value: 'EAN-13', label: 'EAN-13', hint: '13 dígitos con dígito verificador' },
-  { value: 'EAN-8',  label: 'EAN-8',  hint: '8 dígitos con dígito verificador' },
-  { value: 'Code128', label: 'Code128', hint: '8 caracteres alfanuméricos' },
+  { value: 'EAN-13', label: 'EAN-13', hint: '13 dígitos' },
+  { value: 'EAN-8',  label: 'EAN-8',  hint: '8 dígitos' },
+  { value: 'Code128', label: 'Code128', hint: 'Alfanumérico' },
 ];
+
+// Clases reutilizables — touch-friendly, no-zoom en iOS (font ≥ 16px)
+const INPUT =
+  'w-full px-4 text-base min-h-[48px] border border-slate-300 rounded-xl ' +
+  'focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+const BTN_SECONDARY =
+  'flex items-center justify-center gap-1.5 px-4 min-h-[48px] text-sm font-medium ' +
+  'rounded-xl whitespace-nowrap transition-colors active:scale-95';
 
 interface ScanParams {
   barcode: string;
@@ -63,20 +71,15 @@ export function ScanForm({ onSuccess }: Props) {
   const [entryModal, setEntryModal] = useState<ScanOutput & { lotNumber: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [scannerError, setScannerError] = useState('');
-  const [scannerStatus, setScannerStatus] = useState('Preparando cámara…');
-  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   const pendingScan = useRef<ScanParams | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalBarcode, setModalBarcode] = useState('');
+
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -90,78 +93,9 @@ export function ScanForm({ onSuccess }: Props) {
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   useEffect(() => {
-    if (!scannerOpen) return;
-
-    let cancelled = false;
-    let handled = false;
-    setScannerError('');
-    setScannerStatus('Autoriza la cámara y apunta al código del producto.');
-
-    async function startScanner() {
-      const { BrowserMultiFormatReader } = await import('@zxing/browser');
-      if (cancelled) return;
-
-      const codeReader = new BrowserMultiFormatReader();
-      const controls = await codeReader.decodeFromVideoDevice(
-        selectedDeviceId,
-        videoRef.current ?? undefined,
-        (result) => {
-          if (!result || cancelled || handled) return;
-          handled = true;
-
-          const scannedBarcode = extractBarcodeFromScan(result.getText());
-          setBarcode(scannedBarcode);
-          setScannerStatus('Código detectado. Registrando movimiento...');
-          showToast(`Código detectado: ${scannedBarcode}`);
-          scannerControlsRef.current?.stop();
-          scannerControlsRef.current = null;
-          setScannerOpen(false);
-          void processScan(buildScanParams(scannedBarcode));
-        },
-      );
-
-      void BrowserMultiFormatReader.listVideoInputDevices().then((devices) => {
-        if (!cancelled) setCameraDevices(devices);
-      });
-
-      return controls;
-    }
-
-    startScanner()
-      .then((controls) => {
-        if (!controls) return;
-        if (cancelled) {
-          controls.stop();
-          return;
-        }
-        scannerControlsRef.current = controls;
-        setScannerStatus('Cámara activa. Acerca el código al recuadro.');
-        void videoRef.current?.play().catch(() => {
-          setScannerStatus('Toca el video si el navegador bloquea la reproducción automática.');
-        });
-      })
-      .catch((err) => {
-        setScannerError(
-          err instanceof Error
-            ? err.message
-            : 'No se pudo iniciar la cámara. Revisa permisos del navegador.',
-        );
-        setScannerStatus('Cámara no disponible.');
-      });
-
-    return () => {
-      cancelled = true;
-      scannerControlsRef.current?.stop();
-      scannerControlsRef.current = null;
-    };
-  }, [scannerOpen, selectedDeviceId]);
-
-  // Cerrar dropdown al hacer clic fuera
-  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
         setDropdownOpen(false);
-      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -175,21 +109,6 @@ export function ScanForm({ onSuccess }: Props) {
   function pickDemoBarcode() {
     const idx = Math.floor(Math.random() * DEMO_BARCODES.length);
     setBarcode(DEMO_BARCODES[idx].code);
-  }
-
-  function closeScanner() {
-    scannerControlsRef.current?.stop();
-    scannerControlsRef.current = null;
-    setScannerOpen(false);
-  }
-
-  function switchCamera() {
-    if (cameraDevices.length < 2) return;
-
-    const currentIndex = cameraDevices.findIndex((device) => device.deviceId === selectedDeviceId);
-    const nextDevice = cameraDevices[(currentIndex + 1 + cameraDevices.length) % cameraDevices.length];
-    setSelectedDeviceId(nextDevice.deviceId);
-    setScannerStatus('Cambiando cámara...');
   }
 
   async function executeScan(params: ScanParams): Promise<ScanOutput> {
@@ -239,11 +158,8 @@ export function ScanForm({ onSuccess }: Props) {
 
   async function handleProductCreated(_productId: string) {
     setShowModal(false);
-    // Refresh table immediately — the product exists in DB now regardless of scan result
     onSuccess();
-
     if (!pendingScan.current) return;
-
     setLoading(true);
     setError('');
     try {
@@ -273,42 +189,63 @@ export function ScanForm({ onSuccess }: Props) {
 
   return (
     <>
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
         <h2 className="text-base font-semibold text-slate-800 mb-4">Escaneo de Inventario</h2>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {/* Fila: input + Generar código + Escaneo real/simulado */}
-          <div className="flex gap-2">
-            <input
-              className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Código de barras"
-              value={barcode}
-              onChange={e => setBarcode(e.target.value)}
-              required
-            />
 
-            {/* Dropdown Generar código */}
+          {/* ── Fila 1: Código de barras (ancho completo) ── */}
+          <input
+            className={INPUT}
+            placeholder="Código de barras"
+            value={barcode}
+            onChange={e => setBarcode(e.target.value)}
+            required
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            inputMode="text"
+          />
+
+          {/* ── Fila 2: Botones de acción (3 columnas) ── */}
+          <div className="grid grid-cols-3 gap-2">
+            {/* Cámara QuaggaJS — solo en dispositivos móviles */}
+            <button
+              type="button"
+              onClick={() => setCameraOpen(true)}
+              className={`${BTN_SECONDARY} bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white`}
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+              <span>Cámara</span>
+            </button>
+
+            {/* Generar código (dropdown) */}
             <div ref={dropdownRef} className="relative">
               <button
                 type="button"
                 onClick={() => setDropdownOpen(o => !o)}
-                className="flex items-center gap-1 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium rounded-lg whitespace-nowrap transition-colors border border-blue-200"
+                className={`${BTN_SECONDARY} w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200`}
               >
-                Generar código
-                <svg className={`w-3.5 h-3.5 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                Generar
+                <svg className={`w-3.5 h-3.5 shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
 
               {dropdownOpen && (
-                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 overflow-hidden">
-                  <p className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wide">Formato</p>
+                <div className="absolute left-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-xl z-20 py-1 overflow-hidden">
+                  <p className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Formato
+                  </p>
                   {FORMATS.map(f => (
                     <button
                       key={f.value}
                       type="button"
                       onClick={() => handleGenerate(f.value)}
-                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors"
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors"
                     >
                       <span className="block text-sm font-medium text-slate-800">{f.label}</span>
                       <span className="block text-xs text-slate-400">{f.hint}</span>
@@ -318,55 +255,49 @@ export function ScanForm({ onSuccess }: Props) {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setScannerOpen(true)}
-              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg whitespace-nowrap transition-colors"
-            >
-              Escanear cámara
-            </button>
-
+            {/* Simular — rota demo barcodes */}
             <button
               type="button"
               onClick={pickDemoBarcode}
               title="Rota aleatoriamente entre Ibuprofeno, Paracetamol y Vitamina C"
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm rounded-lg whitespace-nowrap transition-colors"
+              className={`${BTN_SECONDARY} bg-slate-100 hover:bg-slate-200 text-slate-600`}
             >
-              Simular escaneo
+              Simular
             </button>
           </div>
 
-          {/* Cantidad + Tipo */}
+          {/* ── Fila 3: Cantidad + Tipo ── */}
           <div className="flex gap-2">
             <input
-              className="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`${INPUT} w-24 flex-none`}
+              style={{ width: '5.5rem' }}
               type="number"
               min={1}
               value={quantity}
               onChange={e => setQuantity(Number(e.target.value))}
             />
             <select
-              className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`${INPUT} flex-1`}
               value={type}
               onChange={e => setType(e.target.value as 'IN' | 'OUT')}
             >
-              <option value="IN">Entrada</option>
-              <option value="OUT">Salida</option>
+              <option value="IN">↑ Entrada</option>
+              <option value="OUT">↓ Salida</option>
             </select>
           </div>
 
-          {/* Lote + Fecha (solo Entrada) */}
+          {/* ── Fila 4: Lote + Fecha vencimiento (solo Entrada) ── */}
           {type === 'IN' && (
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`${INPUT} sm:flex-1`}
                 placeholder="Nro. lote"
                 value={lotNumber}
                 onChange={e => setLotNumber(e.target.value)}
                 required
               />
               <input
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`${INPUT} sm:flex-1`}
                 type="date"
                 value={expiryDate}
                 onChange={e => setExpiryDate(e.target.value)}
@@ -375,28 +306,30 @@ export function ScanForm({ onSuccess }: Props) {
             </div>
           )}
 
+          {/* ── Botón confirmar ── */}
           <button
             type="submit"
             disabled={loading}
-            className="py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm rounded-lg transition-colors"
+            className="min-h-[48px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60 text-white font-semibold text-base rounded-xl transition-colors"
           >
             {loading ? 'Procesando…' : 'Confirmar escaneo'}
           </button>
         </form>
 
         {result && (
-          <div className="mt-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">
+          <div className="mt-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
             ✓ <strong>{result.productName}</strong> — {result.type === 'IN' ? '+' : '-'}{result.quantity} ud.
             &nbsp;|&nbsp; Stock disponible: <strong>{result.stockAfter}</strong>
           </div>
         )}
         {error && (
-          <div className="mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          <div className="mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
             {error}
           </div>
         )}
       </section>
 
+      {/* Modals */}
       {showModal && (
         <CreateProductModal
           barcode={modalBarcode}
@@ -405,99 +338,40 @@ export function ScanForm({ onSuccess }: Props) {
         />
       )}
 
-      {scannerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-800">Escanear producto</h3>
-              </div>
-              <button
-                type="button"
-                onClick={closeScanner}
-                className="p-1 text-2xl leading-none text-slate-400 hover:text-slate-600"
-                aria-label="Cerrar escáner"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="bg-slate-950 p-4">
-              <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-emerald-400/60 bg-black">
-                <video
-                  ref={videoRef}
-                  className="h-full w-full object-cover"
-                  autoPlay
-                  muted
-                  playsInline
-                  onClick={() => void videoRef.current?.play()}
-                />
-                <div className="pointer-events-none absolute inset-10 rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
-              </div>
-            </div>
-
-            <div className="space-y-3 px-5 py-4">
-              <p className="text-sm text-slate-600">{scannerStatus}</p>
-              {scannerError && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {scannerError}
-                  <br />
-                  Si estás en celular, abre la app como <strong>localhost</strong> usando USB reverse o usa HTTPS.
-                </div>
-              )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={closeScanner}
-                  className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={switchCamera}
-                  disabled={cameraDevices.length < 2}
-                  className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Cambiar cámara
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    closeScanner();
-                    pickDemoBarcode();
-                  }}
-                  className="flex-1 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
-                >
-                  Usar demo
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {entryModal && (
         <SuccessModal
           title="¡Entrada registrada!"
           details={[
-            { label: 'Producto',     value: entryModal.productName },
-            { label: 'Cantidad',     value: `+${entryModal.quantity} ud.` },
-            { label: 'Lote',         value: entryModal.lotNumber || '—' },
-            { label: 'Stock total',  value: entryModal.stockAfter },
+            { label: 'Producto',    value: entryModal.productName },
+            { label: 'Cantidad',    value: `+${entryModal.quantity} ud.` },
+            { label: 'Lote',        value: entryModal.lotNumber || '—' },
+            { label: 'Stock total', value: entryModal.stockAfter },
           ]}
           onClose={() => { setEntryModal(null); onSuccess(); }}
         />
       )}
 
+      {/* Toast */}
       {toast && (
         <div
           key={toast.id}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 bg-slate-900 text-white text-sm rounded-xl shadow-lg animate-fade-in"
+          className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-auto z-50 flex items-center gap-3 px-5 py-3 bg-slate-900 text-white text-sm rounded-xl shadow-lg"
         >
           <span className="text-emerald-400 text-base">✓</span>
           {toast.message}
         </div>
+      )}
+
+      {/* Visor de cámara */}
+      {cameraOpen && (
+        <BarcodeCamera
+          onDetected={(code) => {
+            setBarcode(code);
+            setCameraOpen(false);
+            showToast(`Código detectado: ${code}`);
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
       )}
     </>
   );

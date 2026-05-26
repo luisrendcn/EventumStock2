@@ -53,9 +53,13 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
     }
   }
 
+  // Clases de inputs touch-friendly para modal
+  const INPUT = 'w-full px-4 text-base min-h-[48px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
+      {/* En móvil: sheet desde abajo (full-width). En desktop: modal centrado */}
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92dvh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <div>
@@ -78,7 +82,7 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
               Código de barras <span className="text-slate-400">(del escaneo)</span>
             </label>
             <input
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 text-slate-500 cursor-not-allowed"
+              className={`${INPUT} bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed`}
               value={barcode}
               readOnly
             />
@@ -91,7 +95,7 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
             </label>
             <input
               ref={nameRef}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={INPUT}
               placeholder="ej. Ibuprofeno 400mg"
               value={form.name}
               onChange={e => set('name', e.target.value)}
@@ -103,7 +107,7 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">SKU</label>
             <input
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={INPUT}
               placeholder="ej. IBU-400"
               value={form.sku ?? ''}
               onChange={e => set('sku', e.target.value)}
@@ -115,7 +119,7 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Categoría</label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={INPUT}
                 value={form.category ?? ''}
                 onChange={e => set('category', e.target.value)}
               >
@@ -124,9 +128,9 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Unidad de medida</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Unidad</label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={INPUT}
                 value={form.unitOfMeasure ?? 'unidad'}
                 onChange={e => set('unitOfMeasure', e.target.value)}
               >
@@ -138,9 +142,9 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
           {/* Precios */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Precio de costo ($)</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Precio costo ($)</label>
               <input
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={INPUT}
                 type="number"
                 min={0}
                 step="0.01"
@@ -150,9 +154,9 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Precio de venta ($)</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Precio venta ($)</label>
               <input
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={INPUT}
                 type="number"
                 min={0}
                 step="0.01"
@@ -169,37 +173,37 @@ export function CreateProductModal({ barcode, onCreated, onCancel }: Props) {
               Umbral mínimo de stock <span className="text-red-500">*</span>
             </label>
             <input
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={INPUT}
               type="number"
               min={0}
               value={form.minStockThreshold}
               onChange={e => set('minStockThreshold', Number(e.target.value))}
               required
             />
-            <p className="text-xs text-slate-400 mt-1">Alerta si el stock disponible cae por debajo de este valor</p>
+            <p className="text-xs text-slate-400 mt-1">Alerta si stock disponible cae por debajo de este valor</p>
           </div>
 
           {error && (
-            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
               {error}
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex gap-3 pt-1">
+          <div className="flex gap-3 pt-1 pb-2">
             <button
               type="button"
               onClick={onCancel}
-              className="flex-1 py-2.5 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+              className="flex-1 min-h-[48px] border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 active:bg-slate-100 transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm rounded-lg transition-colors"
+              className="flex-1 min-h-[48px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60 text-white font-semibold text-sm rounded-xl transition-colors"
             >
-              {loading ? 'Creando…' : 'Crear y continuar escaneo'}
+              {loading ? 'Creando…' : 'Crear y continuar'}
             </button>
           </div>
         </form>

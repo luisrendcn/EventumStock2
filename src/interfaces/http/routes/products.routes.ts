@@ -154,8 +154,21 @@ export function createProductsRouter(
 
   // POST /api/scan
   router.post('/scan', async (req: Request, res: Response) => {
+    // ── DEBUG TEMPORAL ──────────────────────────────────────────────
+    console.log('[POST /api/scan] body recibido:', JSON.stringify(req.body));
+    if (typeof req.body.barcode === 'string') {
+      console.log('[POST /api/scan] barcode detalle:', {
+        value: req.body.barcode,
+        length: req.body.barcode.length,
+        charCodes: Array.from(req.body.barcode as string).map((c: string) => c.charCodeAt(0)),
+        repr: JSON.stringify(req.body.barcode),
+      });
+    }
+    // ────────────────────────────────────────────────────────────────
+
     const parsed = scanSchema.safeParse(req.body);
     if (!parsed.success) {
+      console.log('[POST /api/scan] Zod error:', JSON.stringify(parsed.error.flatten()));
       res.status(400).json({ error: parsed.error.flatten() });
       return;
     }
@@ -166,6 +179,9 @@ export function createProductsRouter(
       res.json(output);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      // ── DEBUG TEMPORAL ──
+      console.log('[POST /api/scan] error en ejecución:', message);
+      // ────────────────────
       const status = /not found/i.test(message) ? 404
         : /Insufficient/i.test(message) ? 422
         : /Invalid barcode/i.test(message) ? 400

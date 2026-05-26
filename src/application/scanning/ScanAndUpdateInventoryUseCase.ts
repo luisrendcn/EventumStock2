@@ -34,15 +34,18 @@ export class ScanAndUpdateInventoryUseCase {
     let stockAfter: number;
 
     if (type === 'IN') {
-      if (!lotNumber) throw new Error('lotNumber is required for IN movements');
-      if (!expiryDate) throw new Error('expiryDate is required for IN movements');
+      // Generar defaults si no se envían en el body (escaneo desde cámara móvil)
+      const resolvedLot = lotNumber?.trim() || `LOT-${Date.now()}`;
+      const resolvedExpiry = expiryDate
+        ? new Date(expiryDate)
+        : new Date(new Date().setFullYear(new Date().getFullYear() + 1));
 
       const result = await this.registerEntry.execute({
         productId,
         barcode,
         quantity,
-        lotNumber,
-        expiryDate: new Date(expiryDate),
+        lotNumber: resolvedLot,
+        expiryDate: resolvedExpiry,
       });
       stockAfter = result.stockAfter;
     } else {

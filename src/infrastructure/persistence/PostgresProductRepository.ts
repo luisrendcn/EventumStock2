@@ -48,13 +48,21 @@ export class PostgresProductRepository implements IProductRepository {
   }
 
   async saveLot(lot: ProductLot): Promise<ProductLot> {
-    await this.pool.query(
+    // RETURNING * garantiza que siempre devolvemos el id real persistido en BD.
+    // Sin RETURNING, ON CONFLICT DO UPDATE mantiene el id original de la fila
+    // existente pero el objeto `lot` tiene un UUID nuevo → el movimiento
+    // posterior referenciaría un lot_id que no existe → FK violation.
+    const { rows } = await this.pool.query(
       `INSERT INTO product_lots (id, product_id, lot_number, quantity, expiry_date, is_active)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (product_id, lot_number) DO UPDATE SET quantity = $4`,
+       ON CONFLICT (product_id, lot_number) DO UPDATE
+         SET quantity    = EXCLUDED.quantity,
+             is_active   = EXCLUDED.is_active,
+             expiry_date = EXCLUDED.expiry_date
+       RETURNING *`,
       [lot.id, lot.productId, lot.lotNumber, lot.quantity, lot.expiryDate, lot.isActive],
     );
-    return lot;
+    return this.mapLot(rows[0]);
   }
 
   async updateLotQuantity(lotId: string, newQuantity: number): Promise<void> {

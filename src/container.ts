@@ -4,7 +4,7 @@ import Redis from 'ioredis';
 // Infrastructure
 import { PostgresProductRepository } from '@infra/persistence/PostgresProductRepository';
 import { RedisReservationRepository } from '@infra/persistence/RedisReservationRepository';
-import { DatabaseBarcodeScanner } from '@infra/scanning/DatabaseBarcodeScanner';
+import { QuaggaJSScanner } from '@infra/scanning/QuaggaJSScanner';
 import { createNotificationService } from '@infra/notifications/NotificationServiceFactory';
 import { TTLExpirationScheduler } from '@infra/scheduler/TTLExpirationScheduler';
 import { InMemoryEventBus } from '@infra/events/InMemoryEventBus';
@@ -35,7 +35,7 @@ export function buildContainer(pgPool: Pool, redisClient: Redis): AppContainer {
   const reservationRepo = new RedisReservationRepository(redisClient);
 
   // Services
-  const barcodeScanner = new DatabaseBarcodeScanner(productRepo);
+  const barcodeScanner = new QuaggaJSScanner(productRepo);
   const notificationService = createNotificationService();
   const eventBus = new InMemoryEventBus();
   eventBus.subscribe('stock.updated', new LowStockNotificationObserver(notificationService));

@@ -27,3 +27,6 @@ npm-debug.log*
 # TypeScript cache
 *.tsbuildinfo
 .claude/
+
+# mkcert — certificados TLS locales (clave privada, no commitear)
+pwa/*.pem
