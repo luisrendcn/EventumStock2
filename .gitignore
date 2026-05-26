@@ -30,3 +30,4 @@ npm-debug.log*
 
 # mkcert — certificados TLS locales (clave privada, no commitear)
 pwa/*.pem
+logs/
