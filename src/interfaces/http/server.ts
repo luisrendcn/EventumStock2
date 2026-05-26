@@ -8,7 +8,7 @@ import { Server as SocketIOServer } from 'socket.io';
 const CORS_ORIGINS = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'https://192.168.20.10:5173',   // PWA — iPhone vía HTTPS
+  'https://172.20.10.2:5173',   // PWA — iPhone vía HTTPS
   'http://localhost:5174',
   'http://127.0.0.1:5174',
   'http://localhost:5175',         // PWA Docker nginx
