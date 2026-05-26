@@ -1,5 +1,8 @@
 import { Pool } from 'pg';
 import Redis from 'ioredis';
+import { Server as SocketIOServer } from 'socket.io';
+import { Server as HttpServer } from 'http';
+import { Application } from 'express';
 
 // Infrastructure
 import { PostgresProductRepository } from '@infra/persistence/PostgresProductRepository';
@@ -22,10 +25,11 @@ import { ScanAndUpdateInventoryUseCase } from '@app/scanning/ScanAndUpdateInvent
 import { createProductsRouter } from '@interfaces/http/routes/products.routes';
 import { createReservationsRouter } from '@interfaces/http/routes/reservations.routes';
 import { createServer } from '@interfaces/http/server';
-import { Application } from 'express';
 
 export interface AppContainer {
   app: Application;
+  io: SocketIOServer;
+  httpServer: HttpServer;
   scheduler: TTLExpirationScheduler;
 }
 
@@ -59,7 +63,8 @@ export function buildContainer(pgPool: Pool, redisClient: Redis): AppContainer {
   const productsRouter = createProductsRouter(productRepo, reservationRepo, scanAndUpdate);
   const reservationsRouter = createReservationsRouter(reservationRepo, productRepo, createReservation, confirmReservation);
 
-  const app = createServer(productsRouter, reservationsRouter);
+  // HTTP server + Socket.IO
+  const { app, io, httpServer } = createServer(productsRouter, reservationsRouter);
 
-  return { app, scheduler };
+  return { app, io, httpServer, scheduler };
 }

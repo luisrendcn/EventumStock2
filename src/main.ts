@@ -19,17 +19,20 @@ async function main() {
   await redisClient.ping();
   console.log('[Redis] Connected');
 
-  const { app, scheduler } = buildContainer(pgPool, redisClient);
+  const { httpServer, scheduler } = buildContainer(pgPool, redisClient);
 
   scheduler.start();
 
-  app.listen(PORT, () => {
+  // httpServer (http.Server con Socket.IO adjunto) en lugar de app.listen
+  httpServer.listen(PORT, () => {
     console.log(`[EventumStock] Server running on http://localhost:${PORT}`);
     console.log(`[EventumStock] Health: http://localhost:${PORT}/health`);
+    console.log(`[EventumStock] WebSocket: ws://localhost:${PORT}`);
   });
 
   const shutdown = async () => {
     scheduler.stop();
+    httpServer.close();
     await pgPool.end();
     redisClient.disconnect();
     process.exit(0);

@@ -12,9 +12,16 @@ export default defineConfig({
       cert: fs.readFileSync('./192.168.20.10+2.pem'),
     },
     proxy: {
+      // API REST
       '/api': {
         target: 'http://192.168.20.10:3001',
         changeOrigin: true,
+      },
+      // Socket.IO — HTTP polling + WebSocket upgrade
+      '/socket.io': {
+        target: 'http://192.168.20.10:3001',
+        changeOrigin: true,
+        ws: true,          // habilita el upgrade a WebSocket
       },
     },
   },

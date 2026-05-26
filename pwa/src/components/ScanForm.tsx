@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { api, ScanOutput } from '../api/client';
 import { CreateProductModal } from './CreateProductModal';
 import { SuccessModal } from './SuccessModal';
@@ -18,9 +19,9 @@ const FORMATS: { value: BarcodeFormat; label: string; hint: string }[] = [
 ];
 
 // Clases reutilizables — touch-friendly, no-zoom en iOS (font ≥ 16px)
-const INPUT =
-  'w-full px-4 text-base min-h-[48px] border border-slate-300 rounded-xl ' +
-  'focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+const INPUT_BASE =
+  'w-full px-4 text-base min-h-[48px] border rounded-xl ' +
+  'focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition-colors duration-700';
 const BTN_SECONDARY =
   'flex items-center justify-center gap-1.5 px-4 min-h-[48px] text-sm font-medium ' +
   'rounded-xl whitespace-nowrap transition-colors active:scale-95';
@@ -37,12 +38,11 @@ interface Props {
   onSuccess: () => void;
 }
 
-type ToastState = { message: string; id: number } | null;
+type ToastState = { message: string; id: number; fromMobile?: boolean } | null;
 
 /**
  * Extrae el código de barras real de la salida del escáner.
  * Soporta: cadena plana, JSON {"barcode":"…"}, URL ?barcode=…
- * Útil para etiquetas QR de EventumStock que encodan JSON o URLs.
  */
 function extractBarcodeFromScan(rawValue: string): string {
   const value = rawValue.trim();
@@ -51,50 +51,103 @@ function extractBarcodeFromScan(rawValue: string): string {
     const parsed = JSON.parse(value) as { barcode?: unknown; code?: unknown; productCode?: unknown };
     const candidate = parsed.barcode ?? parsed.code ?? parsed.productCode;
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-  } catch {
-    // Código plano — lo más habitual, no es un error.
-  }
+  } catch { /* código plano — lo normal */ }
 
   try {
     const url = new URL(value);
     const candidate = url.searchParams.get('barcode') ?? url.searchParams.get('code');
     if (candidate?.trim()) return candidate.trim();
-  } catch {
-    // No es una URL; usar el valor crudo del escáner.
-  }
+  } catch { /* no es URL */ }
 
   return value;
 }
 
+/** Detecta si el dispositivo es móvil (para mostrar/ocultar botón de cámara) */
+function isMobileDevice(): boolean {
+  return /iPhone|iPad|Android/i.test(navigator.userAgent);
+}
+
 export function ScanForm({ onSuccess }: Props) {
-  const [barcode, setBarcode]       = useState('');
-  const [quantity, setQuantity]     = useState(1);
-  const [type, setType]             = useState<'IN' | 'OUT'>('IN');
-  const [lotNumber, setLotNumber]   = useState('L001');
-  const [expiryDate, setExpiryDate] = useState('2026-12-31');
-  const [result, setResult]         = useState<ScanOutput | null>(null);
-  const [entryModal, setEntryModal] = useState<ScanOutput & { lotNumber: string } | null>(null);
-  const [error, setError]           = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [cameraOpen, setCameraOpen] = useState(false);
+  const [barcode, setBarcode]           = useState('');
+  const [quantity, setQuantity]         = useState(1);
+  const [type, setType]                 = useState<'IN' | 'OUT'>('IN');
+  const [lotNumber, setLotNumber]       = useState('L001');
+  const [expiryDate, setExpiryDate]     = useState('2026-12-31');
+  const [result, setResult]             = useState<ScanOutput | null>(null);
+  const [entryModal, setEntryModal]     = useState<ScanOutput & { lotNumber: string } | null>(null);
+  const [error, setError]               = useState('');
+  const [loading, setLoading]           = useState(false);
+  const [cameraOpen, setCameraOpen]     = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [showModal, setShowModal]   = useState(false);
+  const [showModal, setShowModal]       = useState(false);
   const [modalBarcode, setModalBarcode] = useState('');
 
-  const dropdownRef  = useRef<HTMLDivElement>(null);
-  const pendingScan  = useRef<ScanParams | null>(null);
-  const toastTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [toast, setToast] = useState<ToastState>(null);
+  // ── Estado WebSocket ───────────────────────────────────────────────────────
+  const [wsConnected, setWsConnected]     = useState(false);
+  const [barcodeFlash, setBarcodeFlash]   = useState(false); // animación campo verde
+  const socketRef                          = useRef<Socket | null>(null);
 
-  function showToast(message: string) {
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  const [toast, setToast]   = useState<ToastState>(null);
+  const toastTimer           = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashTimer           = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const pendingScan = useRef<ScanParams | null>(null);
+
+  function showToast(message: string, fromMobile = false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ message, id: Date.now() });
+    setToast({ message, id: Date.now(), fromMobile });
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   }
 
-  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  function flashBarcodeField() {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setBarcodeFlash(true);
+    flashTimer.current = setTimeout(() => setBarcodeFlash(false), 2000);
+  }
 
-  // Cerrar dropdown al hacer clic fuera
+  // ── Socket.IO: conectar al montar, desconectar al desmontar ───────────────
+  useEffect(() => {
+    // Conecta al mismo host que sirve la PWA; Vite proxy redirige /socket.io → backend
+    const socket = io({
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('connect', () => {
+      setWsConnected(true);
+      console.log('[WS] Conectado al backend:', socket.id);
+    });
+
+    socket.on('disconnect', () => {
+      setWsConnected(false);
+      console.log('[WS] Desconectado');
+    });
+
+    // ── Recibir barcode desde el móvil ─────────────────────────────────────
+    socket.on('barcode:scanned', (data: { barcode: string; deviceId?: string }) => {
+      console.log('[WS] barcode:scanned recibido:', data);
+      setBarcode(data.barcode);
+      flashBarcodeField();
+      showToast(`📱 Código recibido desde móvil: ${data.barcode}`, true);
+    });
+
+    socketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Cleanup timers ─────────────────────────────────────────────────────────
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
+
+  // ── Cerrar dropdown al hacer clic fuera ────────────────────────────────────
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
@@ -190,50 +243,84 @@ export function ScanForm({ onSuccess }: Props) {
     setError('Escaneo cancelado — producto no registrado.');
   }
 
+  // ── Clase dinámica del campo barcode (flash verde al recibir desde móvil) ──
+  const inputClass = [
+    INPUT_BASE,
+    barcodeFlash
+      ? 'border-emerald-400 bg-emerald-50 ring-2 ring-emerald-400'
+      : 'border-slate-300',
+  ].join(' ');
+
+  const mobile = isMobileDevice();
+
   return (
     <>
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
-        <h2 className="text-base font-semibold text-slate-800 mb-4">Escaneo de Inventario</h2>
+
+        {/* ── Header con indicador WebSocket ── */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-800">Escaneo de Inventario</h2>
+          <span
+            title={wsConnected ? 'WebSocket conectado' : 'WebSocket desconectado'}
+            className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium ${
+              wsConnected
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-slate-100 text-slate-400'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+            {wsConnected ? 'Live' : 'Offline'}
+          </span>
+        </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
 
           {/* ── Fila 1: Código de barras (ancho completo) ── */}
-          <input
-            className={INPUT}
-            placeholder="Código de barras"
-            value={barcode}
-            onChange={e => setBarcode(e.target.value)}
-            required
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="none"
-            inputMode="text"
-          />
+          <div className="relative">
+            <input
+              className={inputClass}
+              placeholder="Código de barras"
+              value={barcode}
+              onChange={e => setBarcode(e.target.value)}
+              required
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              inputMode="text"
+            />
+            {barcodeFlash && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600 text-xs font-semibold animate-pulse">
+                📱
+              </span>
+            )}
+          </div>
 
           {/* ── Fila 2: Botones de acción ── */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${mobile ? 'grid-cols-3' : 'grid-cols-3'}`}>
 
-            {/* Abrir cámara — QuaggaJS (EAN-13/8, Code128, iOS Safari) */}
-            <button
-              type="button"
-              onClick={() => setCameraOpen(true)}
-              className={`${BTN_SECONDARY} bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white`}
-            >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-              <span>Cámara</span>
-            </button>
+            {/* Cámara — solo en móvil */}
+            {mobile && (
+              <button
+                type="button"
+                onClick={() => setCameraOpen(true)}
+                className={`${BTN_SECONDARY} bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white`}
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+                <span>Cámara</span>
+              </button>
+            )}
 
             {/* Generar código de prueba (dropdown) */}
-            <div ref={dropdownRef} className="relative">
+            <div ref={dropdownRef} className={`relative ${!mobile ? 'col-span-2' : ''}`}>
               <button
                 type="button"
                 onClick={() => setDropdownOpen(o => !o)}
                 className={`${BTN_SECONDARY} w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200`}
               >
-                Generar
+                Generar código
                 <svg
                   className={`w-3.5 h-3.5 shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
                   fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -262,7 +349,7 @@ export function ScanForm({ onSuccess }: Props) {
               )}
             </div>
 
-            {/* Simular — rota entre demos de Ibuprofeno, Paracetamol, Vitamina C */}
+            {/* Simular */}
             <button
               type="button"
               onClick={pickDemoBarcode}
@@ -276,7 +363,7 @@ export function ScanForm({ onSuccess }: Props) {
           {/* ── Fila 3: Cantidad + Tipo ── */}
           <div className="flex gap-2">
             <input
-              className={`${INPUT} flex-none`}
+              className={`${INPUT_BASE} flex-none border-slate-300`}
               style={{ width: '5.5rem' }}
               type="number"
               min={1}
@@ -284,7 +371,7 @@ export function ScanForm({ onSuccess }: Props) {
               onChange={e => setQuantity(Number(e.target.value))}
             />
             <select
-              className={`${INPUT} flex-1`}
+              className={`${INPUT_BASE} flex-1 border-slate-300`}
               value={type}
               onChange={e => setType(e.target.value as 'IN' | 'OUT')}
             >
@@ -297,14 +384,14 @@ export function ScanForm({ onSuccess }: Props) {
           {type === 'IN' && (
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                className={`${INPUT} sm:flex-1`}
+                className={`${INPUT_BASE} sm:flex-1 border-slate-300`}
                 placeholder="Nro. lote"
                 value={lotNumber}
                 onChange={e => setLotNumber(e.target.value)}
                 required
               />
               <input
-                className={`${INPUT} sm:flex-1`}
+                className={`${INPUT_BASE} sm:flex-1 border-slate-300`}
                 type="date"
                 value={expiryDate}
                 onChange={e => setExpiryDate(e.target.value)}
@@ -359,24 +446,39 @@ export function ScanForm({ onSuccess }: Props) {
         />
       )}
 
-      {/* Toast */}
+      {/* Toast — estilo diferente si viene desde el móvil */}
       {toast && (
         <div
           key={toast.id}
-          className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-auto z-50 flex items-center gap-3 px-5 py-3 bg-slate-900 text-white text-sm rounded-xl shadow-lg"
+          className={`fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-auto z-50
+            flex items-center gap-3 px-5 py-3 text-sm rounded-xl shadow-lg
+            ${toast.fromMobile
+              ? 'bg-emerald-800 text-white ring-2 ring-emerald-400'
+              : 'bg-slate-900 text-white'
+            }`}
         >
-          <span className="text-emerald-400 text-base">✓</span>
+          <span className="text-base">{toast.fromMobile ? '📱' : '✓'}</span>
           {toast.message}
         </div>
       )}
 
-      {/* Visor de cámara — QuaggaJS (EAN-13/8 + Code128, facingMode: environment) */}
+      {/* Visor de cámara — QuaggaJS (solo en móvil) */}
       {cameraOpen && (
         <BarcodeCamera
-          onDetected={(code) => {
-            setBarcode(code);
+          onDetected={async (code) => {
+            const extracted = extractBarcodeFromScan(code);
+            setBarcode(extracted);
             setCameraOpen(false);
-            showToast(`Código detectado: ${code}`);
+            showToast(`Código escaneado: ${extracted}`);
+
+            // Enviar al desktop vía WebSocket (fire-and-forget)
+            try {
+              const result = await api.broadcastBarcode(extracted, 'iphone');
+              console.log(`[WS] Barcode enviado al desktop (${result.recipients} receptor/es)`);
+              showToast(`Código enviado al desktop ✓`);
+            } catch (err) {
+              console.warn('[WS] No se pudo enviar al desktop:', err);
+            }
           }}
           onClose={() => setCameraOpen(false)}
         />

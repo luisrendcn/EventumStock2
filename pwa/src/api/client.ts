@@ -94,4 +94,14 @@ export const api = {
 
   confirmReservation: (id: string) =>
     request<{ message: string; productName: string; quantity: number; stockAfter: number }>(`/reservations/${id}/confirm`, { method: 'PATCH' }),
+
+  /**
+   * Emite el barcode escaneado por el móvil a todos los clientes WebSocket
+   * conectados (desktop SGI). Fire-and-forget — el móvil no espera respuesta.
+   */
+  broadcastBarcode: (barcode: string, deviceId = 'mobile') =>
+    request<{ ok: boolean; barcode: string; recipients: number }>('/scan/broadcast', {
+      method: 'POST',
+      body: JSON.stringify({ barcode, deviceId }),
+    }),
 };
