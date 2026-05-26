@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { IScannerControls } from '@zxing/browser';
 import { api, ScanOutput } from '../api/client';
 import { CreateProductModal } from './CreateProductModal';
 import { SuccessModal } from './SuccessModal';
@@ -30,6 +31,28 @@ interface Props {
 
 type ToastState = { message: string; id: number } | null;
 
+function extractBarcodeFromScan(rawValue: string): string {
+  const value = rawValue.trim();
+
+  try {
+    const parsed = JSON.parse(value) as { barcode?: unknown; code?: unknown; productCode?: unknown };
+    const candidate = parsed.barcode ?? parsed.code ?? parsed.productCode;
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  } catch {
+    // Plain barcodes are expected, JSON is only supported for EventumStock QR labels.
+  }
+
+  try {
+    const url = new URL(value);
+    const candidate = url.searchParams.get('barcode') ?? url.searchParams.get('code');
+    if (candidate?.trim()) return candidate.trim();
+  } catch {
+    // Not a URL; use the raw scanner value.
+  }
+
+  return value;
+}
+
 export function ScanForm({ onSuccess }: Props) {
   const [barcode, setBarcode] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -40,9 +63,14 @@ export function ScanForm({ onSuccess }: Props) {
   const [entryModal, setEntryModal] = useState<ScanOutput & { lotNumber: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const [scannerStatus, setScannerStatus] = useState('Preparando cámara…');
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   const pendingScan = useRef<ScanParams | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -58,6 +86,72 @@ export function ScanForm({ onSuccess }: Props) {
   }
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+
+    let cancelled = false;
+    const constraints: MediaStreamConstraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    };
+
+    setScannerError('');
+    setScannerStatus('Autoriza la cámara y apunta al código del producto.');
+
+    async function startScanner() {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser');
+      if (cancelled) return;
+
+      const codeReader = new BrowserMultiFormatReader();
+      const controls = await codeReader.decodeFromConstraints(
+        constraints,
+        videoRef.current ?? undefined,
+        (result) => {
+          if (!result || cancelled) return;
+
+          const scannedBarcode = extractBarcodeFromScan(result.getText());
+          setBarcode(scannedBarcode);
+          setScannerStatus('Código detectado.');
+          showToast(`Código escaneado: ${scannedBarcode}`);
+          scannerControlsRef.current?.stop();
+          scannerControlsRef.current = null;
+          setScannerOpen(false);
+        },
+      );
+
+      return controls;
+    }
+
+    startScanner()
+      .then((controls) => {
+        if (!controls) return;
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+        scannerControlsRef.current = controls;
+        setScannerStatus('Cámara activa. Acerca el código al recuadro.');
+      })
+      .catch((err) => {
+        setScannerError(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo iniciar la cámara. Revisa permisos del navegador.',
+        );
+        setScannerStatus('Cámara no disponible.');
+      });
+
+    return () => {
+      cancelled = true;
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+    };
+  }, [scannerOpen]);
 
   // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
@@ -78,6 +172,12 @@ export function ScanForm({ onSuccess }: Props) {
   function pickDemoBarcode() {
     const idx = Math.floor(Math.random() * DEMO_BARCODES.length);
     setBarcode(DEMO_BARCODES[idx].code);
+  }
+
+  function closeScanner() {
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    setScannerOpen(false);
   }
 
   async function executeScan(params: ScanParams): Promise<ScanOutput> {
@@ -159,7 +259,7 @@ export function ScanForm({ onSuccess }: Props) {
         <h2 className="text-base font-semibold text-slate-800 mb-4">Escaneo de Inventario</h2>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          {/* Fila: input + Generar código + Simular escaneo */}
+          {/* Fila: input + Generar código + Escaneo real/simulado */}
           <div className="flex gap-2">
             <input
               className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -199,6 +299,14 @@ export function ScanForm({ onSuccess }: Props) {
                 </div>
               )}
             </div>
+
+            <button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg whitespace-nowrap transition-colors"
+            >
+              Escanear cámara
+            </button>
 
             <button
               type="button"
@@ -277,6 +385,68 @@ export function ScanForm({ onSuccess }: Props) {
           onCreated={handleProductCreated}
           onCancel={handleModalCancel}
         />
+      )}
+
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">Escanear producto</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeScanner}
+                className="p-1 text-2xl leading-none text-slate-400 hover:text-slate-600"
+                aria-label="Cerrar escáner"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="bg-slate-950 p-4">
+              <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-emerald-400/60 bg-black">
+                <video
+                  ref={videoRef}
+                  className="h-full w-full object-cover"
+                  muted
+                  playsInline
+                />
+                <div className="pointer-events-none absolute inset-10 rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
+              </div>
+            </div>
+
+            <div className="space-y-3 px-5 py-4">
+              <p className="text-sm text-slate-600">{scannerStatus}</p>
+              {scannerError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {scannerError}
+                  <br />
+                  Si estás en celular, abre la app como <strong>localhost</strong> usando USB reverse o usa HTTPS.
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={closeScanner}
+                  className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeScanner();
+                    pickDemoBarcode();
+                  }}
+                  className="flex-1 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Usar demo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {entryModal && (
