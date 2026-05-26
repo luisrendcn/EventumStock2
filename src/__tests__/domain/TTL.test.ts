@@ -19,6 +19,12 @@ describe('TTL', () => {
     expect(() => TTL.create(0)).toThrow(TTLError);
   });
 
+  it('rejects non integer values', () => {
+    expect(() => TTL.create(120.5)).toThrow(TTLError);
+    expect(() => TTL.create(Number.NaN)).toThrow(TTLError);
+    expect(() => TTL.create(Number.POSITIVE_INFINITY)).toThrow(TTLError);
+  });
+
   it('rejects above maximum', () => {
     expect(() => TTL.create(86401)).toThrow(TTLError);
   });

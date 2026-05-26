@@ -18,6 +18,9 @@ export class TTL {
 
   static create(seconds?: number): TTL {
     const value = seconds ?? TTL.DEFAULT_SECONDS;
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new TTLError(`TTL must be an integer number of seconds. Got: ${value}`);
+    }
     if (value < TTL.MIN_SECONDS) {
       throw new TTLError(`TTL must be at least ${TTL.MIN_SECONDS}s (2 min). Got: ${value}s`);
     }

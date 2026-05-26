@@ -12,7 +12,12 @@ interface Props {
 }
 
 export function Checkout({ product, quantity, reservation, onSuccess, onCancel, onExpired }: Props) {
-  const [remaining, setRemaining] = useState(reservation.remainingSeconds);
+  const getRemainingSeconds = () => Math.max(
+    0,
+    Math.ceil((new Date(reservation.expiresAt).getTime() - Date.now()) / 1000),
+  );
+
+  const [remaining, setRemaining] = useState(getRemainingSeconds);
   const [status, setStatus] = useState<'active' | 'confirming' | 'cancelling' | 'expired'>('active');
   const [error, setError] = useState('');
   const expiredRef = useRef(false);
@@ -21,8 +26,8 @@ export function Checkout({ product, quantity, reservation, onSuccess, onCancel, 
     if (remaining <= 0) return;
 
     const interval = setInterval(() => {
-      setRemaining(prev => {
-        const next = prev - 1;
+      setRemaining(() => {
+        const next = getRemainingSeconds();
         if (next <= 0 && !expiredRef.current) {
           expiredRef.current = true;
           clearInterval(interval);

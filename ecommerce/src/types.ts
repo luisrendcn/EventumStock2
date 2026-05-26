@@ -26,4 +26,5 @@ export interface Reservation {
 export interface CartItem {
   product: Product;
   quantity: number;
+  ttlSeconds: number;
 }

@@ -6,6 +6,13 @@ interface Props {
   onCheckout: (product: Product, quantity: number, reservation: Reservation) => void;
 }
 
+const TTL_OPTIONS = [
+  { label: '2 min', seconds: 120 },
+  { label: '5 min', seconds: 300 },
+  { label: '15 min', seconds: 900 },
+  { label: '30 min', seconds: 1800 },
+];
+
 const CATEGORY_EMOJI: Record<string, string> = {
   'Analgésico': '💊', 'Vitamina': '🌿', 'Antibiótico': '🧬',
   'Antiinflamatorio': '🔬', 'Suplemento': '⚗️', 'Otro': '📦',
@@ -20,6 +27,7 @@ export function Catalog({ onCheckout }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [ttlSeconds, setTtlSeconds] = useState(TTL_OPTIONS[0].seconds);
   const [cart, setCart] = useState<CartItem | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState('');
@@ -44,7 +52,7 @@ export function Catalog({ onCheckout }: Props) {
   }
 
   function addToCart(product: Product) {
-    setCart({ product, quantity: quantities[product.id] ?? 1 });
+    setCart({ product, quantity: quantities[product.id] ?? 1, ttlSeconds });
     setPayError('');
   }
 
@@ -58,7 +66,7 @@ export function Catalog({ onCheckout }: Props) {
         productId: cart.product.id,
         quantity: cart.quantity,
         orderId,
-        ttlSeconds: 120,
+        ttlSeconds: cart.ttlSeconds,
       });
       onCheckout(cart.product, cart.quantity, reservation);
     } catch (err) {
@@ -116,8 +124,11 @@ export function Catalog({ onCheckout }: Props) {
                   {cart.product.salePrice
                     ? ` · $${(cart.product.salePrice * cart.quantity).toFixed(2)}`
                     : ''}
+                  {' · '}
+                  reserva {TTL_OPTIONS.find(option => option.seconds === cart.ttlSeconds)?.label ?? `${cart.ttlSeconds}s`}
                 </p>
               </div>
+
             </div>
             <div className="flex items-center gap-3 shrink-0">
               {payError && (
@@ -191,6 +202,31 @@ export function Catalog({ onCheckout }: Props) {
                     {product.available} disponibles
                   </p>
                   <p className="text-xs text-zinc-400">stock total: {product.totalStock}</p>
+                </div>
+              </div>
+
+              <div className="px-5 pb-4">
+                <label className="block text-xs font-medium text-zinc-500 mb-2">Tiempo de reserva</label>
+                <div className="grid grid-cols-4 gap-1 rounded-xl bg-zinc-100 p-1">
+                  {TTL_OPTIONS.map(option => (
+                    <button
+                      key={option.seconds}
+                      type="button"
+                      onClick={() => {
+                        setTtlSeconds(option.seconds);
+                        if (inCart) {
+                          setCart({ product, quantity: qty, ttlSeconds: option.seconds });
+                        }
+                      }}
+                      className={`py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                        ttlSeconds === option.seconds
+                          ? 'bg-white text-indigo-700 shadow-sm'
+                          : 'text-zinc-500 hover:text-zinc-800'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
