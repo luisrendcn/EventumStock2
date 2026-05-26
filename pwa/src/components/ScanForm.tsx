@@ -39,6 +39,11 @@ interface Props {
 
 type ToastState = { message: string; id: number } | null;
 
+/**
+ * Extrae el código de barras real de la salida del escáner.
+ * Soporta: cadena plana, JSON {"barcode":"…"}, URL ?barcode=…
+ * Útil para etiquetas QR de EventumStock que encodan JSON o URLs.
+ */
 function extractBarcodeFromScan(rawValue: string): string {
   const value = rawValue.trim();
 
@@ -47,7 +52,7 @@ function extractBarcodeFromScan(rawValue: string): string {
     const candidate = parsed.barcode ?? parsed.code ?? parsed.productCode;
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
   } catch {
-    // Plain barcodes are expected, JSON is only supported for EventumStock QR labels.
+    // Código plano — lo más habitual, no es un error.
   }
 
   try {
@@ -55,34 +60,31 @@ function extractBarcodeFromScan(rawValue: string): string {
     const candidate = url.searchParams.get('barcode') ?? url.searchParams.get('code');
     if (candidate?.trim()) return candidate.trim();
   } catch {
-    // Not a URL; use the raw scanner value.
+    // No es una URL; usar el valor crudo del escáner.
   }
 
   return value;
 }
 
 export function ScanForm({ onSuccess }: Props) {
-  const [barcode, setBarcode] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [type, setType] = useState<'IN' | 'OUT'>('IN');
-  const [lotNumber, setLotNumber] = useState('L001');
+  const [barcode, setBarcode]       = useState('');
+  const [quantity, setQuantity]     = useState(1);
+  const [type, setType]             = useState<'IN' | 'OUT'>('IN');
+  const [lotNumber, setLotNumber]   = useState('L001');
   const [expiryDate, setExpiryDate] = useState('2026-12-31');
-  const [result, setResult] = useState<ScanOutput | null>(null);
+  const [result, setResult]         = useState<ScanOutput | null>(null);
   const [entryModal, setEntryModal] = useState<ScanOutput & { lotNumber: string } | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
+  const [error, setError]           = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const pendingScan = useRef<ScanParams | null>(null);
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal]   = useState(false);
   const [modalBarcode, setModalBarcode] = useState('');
 
-  const [cameraOpen, setCameraOpen] = useState(false);
-
+  const dropdownRef  = useRef<HTMLDivElement>(null);
+  const pendingScan  = useRef<ScanParams | null>(null);
+  const toastTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(message: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -92,6 +94,7 @@ export function ScanForm({ onSuccess }: Props) {
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
+  // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
@@ -207,9 +210,10 @@ export function ScanForm({ onSuccess }: Props) {
             inputMode="text"
           />
 
-          {/* ── Fila 2: Botones de acción (3 columnas) ── */}
+          {/* ── Fila 2: Botones de acción ── */}
           <div className="grid grid-cols-3 gap-2">
-            {/* Cámara QuaggaJS — solo en dispositivos móviles */}
+
+            {/* Abrir cámara — QuaggaJS (EAN-13/8, Code128, iOS Safari) */}
             <button
               type="button"
               onClick={() => setCameraOpen(true)}
@@ -222,7 +226,7 @@ export function ScanForm({ onSuccess }: Props) {
               <span>Cámara</span>
             </button>
 
-            {/* Generar código (dropdown) */}
+            {/* Generar código de prueba (dropdown) */}
             <div ref={dropdownRef} className="relative">
               <button
                 type="button"
@@ -230,7 +234,10 @@ export function ScanForm({ onSuccess }: Props) {
                 className={`${BTN_SECONDARY} w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200`}
               >
                 Generar
-                <svg className={`w-3.5 h-3.5 shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg
+                  className={`w-3.5 h-3.5 shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
@@ -255,7 +262,7 @@ export function ScanForm({ onSuccess }: Props) {
               )}
             </div>
 
-            {/* Simular — rota demo barcodes */}
+            {/* Simular — rota entre demos de Ibuprofeno, Paracetamol, Vitamina C */}
             <button
               type="button"
               onClick={pickDemoBarcode}
@@ -269,7 +276,7 @@ export function ScanForm({ onSuccess }: Props) {
           {/* ── Fila 3: Cantidad + Tipo ── */}
           <div className="flex gap-2">
             <input
-              className={`${INPUT} w-24 flex-none`}
+              className={`${INPUT} flex-none`}
               style={{ width: '5.5rem' }}
               type="number"
               min={1}
@@ -306,7 +313,7 @@ export function ScanForm({ onSuccess }: Props) {
             </div>
           )}
 
-          {/* ── Botón confirmar ── */}
+          {/* ── Confirmar ── */}
           <button
             type="submit"
             disabled={loading}
@@ -329,7 +336,7 @@ export function ScanForm({ onSuccess }: Props) {
         )}
       </section>
 
-      {/* Modals */}
+      {/* Modal: crear producto nuevo cuando el barcode no existe */}
       {showModal && (
         <CreateProductModal
           barcode={modalBarcode}
@@ -338,6 +345,7 @@ export function ScanForm({ onSuccess }: Props) {
         />
       )}
 
+      {/* Modal: confirmación de entrada */}
       {entryModal && (
         <SuccessModal
           title="¡Entrada registrada!"
@@ -362,7 +370,7 @@ export function ScanForm({ onSuccess }: Props) {
         </div>
       )}
 
-      {/* Visor de cámara */}
+      {/* Visor de cámara — QuaggaJS (EAN-13/8 + Code128, facingMode: environment) */}
       {cameraOpen && (
         <BarcodeCamera
           onDetected={(code) => {
